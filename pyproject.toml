@@ -1,0 +1,29 @@
+[project]
+name = "rag-assistant"
+version = "0.1.1"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi",
+    "uvicorn[standard]",
+    "pydantic-settings",
+    "psycopg[binary,pool]",
+    "pgvector",
+    "sentence-transformers",
+    "google-genai",
+    "openai",  # used for any OpenAI-compatible endpoint (Groq, Ollama, ...)
+    "python-frontmatter",
+    "pyyaml",
+]
+
+[project.optional-dependencies]
+dev = ["pytest", "httpx"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["app*"]
+
+[tool.pytest.ini_options]
+markers = ["integration: requires a running Postgres (docker compose up -d db)"]
