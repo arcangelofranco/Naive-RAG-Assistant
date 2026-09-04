@@ -695,18 +695,13 @@ Querying `/debug/retrieve` with questions whose answer **is present in the knowl
 | `How does the separation between commands and queries work?` |         $0.6475$ | `software-architecture/cqrs`              | Correct            |
 | `How does the single responsibility principle work?`        |         $0.5658$ | `design-patterns/chain-of-responsibility` | **Wrong document** |
 
-One failure mode survives on this corpus, and it is worth stating precisely:
+One failure mode shows up on this corpus, and it is worth stating precisely:
 
 **A common term can dominate the specific concept.** **"single responsibility principle"** points at the first SOLID principle, but the word **"responsibility"** pushes the vector towards `chain-of-responsibility`, which holds a semantically adjacent yet different concept. The expected document, `software-architecture/solid`, does not reach the top position. This is exactly the case where a lexical method such as BM25 would help, because the full phrase appears literally in the SOLID document.
 
 The case still exposes the underlying limitation of dense retrieval: **semantic similarity is not the same thing as relevance to the task**. Two texts can sit close together in embedding space while referring to distinct concepts, and an exact lexical match can be far more informative.
 
-> [!IMPORTANT]
-> **These figures replaced a much worse set, and the reason matters more than the numbers.** An earlier version of this corpus was written in Italian while the embedding model, `all-MiniLM-L6-v2`, is trained on English. Three of these same four queries then failed: `CQRS` alone scored $0.4237$ and was refused, and two paraphrases retrieved the wrong document. Translating the corpus into English, with no change to the retrieval code, the thresholds or the model, fixed all three.
->
-> The lesson is not that dense retrieval improved. It is that the earlier measurements were **mostly measuring a language mismatch**, and were being read as evidence about dense retrieval in general. A weak result deserves the same scrutiny as a surprising one, because the cause you assume is not always the cause you have.
-
-**What this means for hybrid retrieval.** The case for it is now considerably weaker than it was: one query out of four fails, not three, and the surviving failure is a single lexical collision. It remains the most plausible improvement for this domain, since BM25 addresses exactly that failure, but on this evidence it is a candidate rather than a justified change. Deciding it properly needs the golden set described in [Verification and Evaluation](#verification-and-evaluation), not four hand-picked questions.
+**What this means for hybrid retrieval.** One query out of four fails, and the failure is a single lexical collision. Hybrid retrieval remains the most plausible improvement for this domain, since BM25 addresses exactly that failure, but on this evidence it is a candidate rather than a justified change. Deciding it properly needs the golden set described in [Verification and Evaluation](#verification-and-evaluation), not four hand-picked questions.
 
 
 ## Exact and approximate search
@@ -777,7 +772,7 @@ That trap is exactly what this sample now shows, in the direction that is easy t
 
 The value is deliberately left at `0.5` here rather than tuned to this sample, because 14 hand-picked questions are enough to show that a gap exists and not enough to place a cutoff inside it. Moving it is a calibration decision, and calibration is what the golden set in [Verification and Evaluation](#verification-and-evaluation) is for.
 
-A separate reading is worth keeping in view. The comfortable separation measured here is a property of **this corpus in this language**, not a general property of the pipeline. On the earlier Italian corpus the two ranges genuinely did overlap, with out-of-domain questions reaching $0.4674$ against in-domain questions starting at $0.4237$. Nothing about the retrieval code changed between those two measurements.
+One reading is worth keeping in view: the separation measured here is a property of **this corpus and this embedding model**, not a general property of the pipeline. The threshold does not transfer to a different corpus or a different vector space.
 
 ---
 # Chunking
@@ -1067,10 +1062,6 @@ classDiagram
 **Why `TokenCounter` extends `EmbeddingProvider`.**
 
 The chunker has to count tokens **with the same tokenizer** that will produce the vector. Keeping them separate would allow tokens to be counted with one model and the embedding to be computed with another, which introduces a silent mismatch.
-
-> **A note on a port with no callers.** `EmbeddingFiller` is implemented by `PostgresRepository`, but **nobody uses it**. It would serve to recompute vectors for chunks that already exist, as part of the migration procedure described in [The Data Model](#why-three-tables-and-not-one). It is therefore infrastructure written in anticipation of a procedure that does not exist yet.
->
-> It should either be completed with the command that uses it, or removed. An interface with no callers is not a useful abstraction: it is code that no test covers and that nobody has a reason to maintain.
 
 
 ## The Decorator Stack
@@ -1643,7 +1634,7 @@ Three things are worth reading off this table.
 
 Retrieval and generation are decoupled. A question about the Facade pattern retrieves five chunks, of which exactly three clear the similarity threshold, all from the `facade` document, scoring $0.6577$, $0.6079$ and $0.5133$. The two that fall below come from `template-method` and `strategy` at $0.4372$ and $0.4195$, and dropping them is the threshold working as intended.
 
-Because only three chunks clear the threshold anyway, `top_k=5` and `top_k=3` build an identical prompt here and produce the same cited answer. On the earlier Italian corpus the same comparison did change the outcome, with `top_k=3` leading the model to refuse for insufficient context. Both outcomes are correct under the system prompt, which treats an answer unsupported by context as a worse failure than a refusal, but the divergence is no longer reproducible on this corpus.
+Because only three chunks clear the threshold anyway, `top_k=5` and `top_k=3` build an identical prompt here and produce the same cited answer.
 
 Out-of-domain questions are refused before the LLM is called at all, because no chunk clears the similarity threshold:
 
@@ -1672,7 +1663,7 @@ The `/debug/retrieve` endpoint is what makes the first row possible. It exposes 
 
 The project has **no systematic evaluation harness**, and this is its most significant gap. In detail:
 
-* **No golden set.** There is no set of questions paired with their expected chunk, so Recall@k cannot be computed and its trend over time cannot be watched. The four questions in the [Where Dense Retrieval Fails Here](#where-dense-retrieval-fails-here) table are hand-picked examples, not a representative sample. The cost of that gap has already been paid once: translating the corpus moved three of those four queries from failure to success, and nothing in the project would have detected a change of that size on its own.
+* **No golden set.** There is no set of questions paired with their expected chunk, so Recall@k cannot be computed and its trend over time cannot be watched. The four questions in the [Where Dense Retrieval Fails Here](#where-dense-retrieval-fails-here) table are hand-picked examples, not a representative sample. Any change to the corpus, the chunking or the model could move retrieval quality in either direction without the project detecting it.
 
 * **No test suite in the repository.** `pyproject.toml` declares `pytest` and `httpx` among the development dependencies, plus an `integration` marker, but the test code is not yet present in the project tree. As a result, none of the invariants described in this document is protected by an automated check, including provider non-disclosure in the `429` and `503` handlers.
 
@@ -1714,7 +1705,7 @@ Every technique listed here is absent by explicit choice, not by oversight. For 
 
 | Absent                                     | Why                                                                                                                              | Signal that would justify it                                                                                                             |
 | :----------------------------------------- | :--------------------------------------------------------------------------------------------------------------------------------- | :------------------------------------------------------------------------------------------------------------------------------------------ |
-| **Hybrid search** (BM25 **[5]** plus dense) | Requires a second indexing strategy and a score fusion stage                                                                     | **Partial.** One query out of four fails for a lexical reason, as documented in [Where Dense Retrieval Fails Here](#where-dense-retrieval-fails-here). That was three out of four before the corpus was translated, so the signal is real but much weaker than it looked |
+| **Hybrid search** (BM25 **[5]** plus dense) | Requires a second indexing strategy and a score fusion stage                                                                     | **Partial.** One query out of four fails for a lexical reason, as documented in [Where Dense Retrieval Fails Here](#where-dense-retrieval-fails-here). The signal is real, but too thin on four hand-picked questions to justify the change on its own |
 | **Cross-encoder reranking [8]**            | Adds one model pass per candidate, on a corpus where the exact scan already returns the correct neighbors                          | Recall@10 high but Recall@3 low, meaning the right chunk is retrieved but does not reach the top positions                                |
 | **ANN index**, HNSW **[6]** or IVFFlat     | Across 179 vectors the exact scan guarantees 100% recall and is faster than it needs to be                                        | Vector search becomes a measurable share of request time, which today is dominated by the network call to the provider                    |
 | **Query rewriting and HyDE [9]**           | Adds a model call before retrieval, and therefore latency and cost, for a problem hybrid search might solve first                 | Acronym and paraphrase failures persist even after hybrid search has been introduced                                                     |
@@ -1742,12 +1733,6 @@ docker compose run --rm api python -m app.ingestion.corpus
 ```
 
 This procedure is acceptable **precisely because** `knowledge/*.md` is the source of truth and the database is a derivation. The moment the database held data that could not be rebuilt from the corpus, a real migration tool would be needed and `down -v` would stop being a reasonable choice.
-
-## The code written for a use that does not exist
-
-There is one exception to declare openly, because it contradicts the rule followed elsewhere. The `EmbeddingFiller` port is implemented by `PostgresRepository`, but **no caller uses it**. It was written for the migration to a new embedding model described in [The Data Model](#why-three-tables-and-not-one), a procedure that currently has no command to execute it.
-
-The criterion applied to the rest of the project would have suggested not writing that code until a caller existed. An interface with no callers offers no useful abstraction: no test covers it, no usage validates its shape, and nobody has a concrete reason to keep it aligned with the rest of the system.
 
 ---
 # Glossary
@@ -1857,9 +1842,9 @@ Three clarifications help in interpreting them correctly.
 
 **Latency figures include the network.** Every time reported for an answer that is not in cache includes the call to the LLM provider, so it depends on provider load and on the geographic distance of the endpoint. Cold calls measured here span 10.4 s to 26.2 s on identical configuration, and an earlier round on this project recorded 3073 ms, so the absolute values carry little meaning. What survives across all of those rounds is the ratio between cache hit and cache miss, which stays in the hundreds.
 
-**Similarity scores are model-dependent, and language-dependent.** All the values reported here are produced by `all-MiniLM-L6-v2` over an English corpus. They are not comparable with those of another embedding model, and the `0.5` threshold does not transfer to a pipeline built on different vectors. The point is not theoretical here: the same corpus in Italian, with the same model and the same code, produced overlapping in-domain and out-of-domain ranges instead of the clean separation reported above.
+**Similarity scores are model-dependent.** All the values reported here are produced by `all-MiniLM-L6-v2` over this corpus. They are not comparable with those of another embedding model, and the `0.5` threshold does not transfer to a pipeline built on different vectors.
 
-**The threshold sample is small and hand-picked.** The 8 in-domain and 6 out-of-domain questions were written by the author, not drawn from an independent set, and they were chosen after the corpus was translated rather than fixed beforehand. They are enough to show that a wide gap exists between the two classes, which is a coarse claim and robust on few cases, and not enough to place a cutoff inside that gap. That would require the golden set described in [Verification and Evaluation](#verification-and-evaluation).
+**The threshold sample is small and hand-picked.** The 8 in-domain and 6 out-of-domain questions were written by the author, not drawn from an independent set. They are enough to show that a wide gap exists between the two classes, which is a coarse claim and robust on few cases, and not enough to place a cutoff inside that gap. That would require the golden set described in [Verification and Evaluation](#verification-and-evaluation).
 
 Every measurement is reproducible with the commands present in this document. Similarity scores come from `/debug/retrieve`, corpus volumes from direct database queries, and response times from repeated calls to `/ask` on the same prompt. None of them requires instrumentation beyond what the project already exposes.
 
@@ -1873,8 +1858,6 @@ The design bias, everywhere, is towards **verifiability over helpfulness**. The 
 
 The architecture is deliberately conventional. Protocols sit next to their consumers, adapters are interchangeable, and the composition root is the only place that knows which concrete implementations are in use. That allows switching from Gemini to Groq through an environment variable, with no code change, and it keeps the grounding rules in the domain layer, where they can be tested without network calls or database access.
 
-The measurements reported in this document follow the same principle. The surviving retrieval failure on the single responsibility question is not an incidental defect to hide, it is empirical evidence, and it is what keeps hybrid search on the table as a candidate.
+The measurements reported in this document follow the same principle. The retrieval failure on the single responsibility question is not an incidental defect to hide, it is empirical evidence, and it is what keeps hybrid search on the table as a candidate.
 
-The revision history of those measurements makes the same point more sharply. An earlier version of this document reported three failures out of four and an overlap between in-domain and out-of-domain scores, and read both as findings about dense retrieval. Translating the corpus from Italian into English, with no change to the retrieval code, removed both. The measurements had been real, and the conclusion drawn from them had been wrong, because the variable actually under test was the language of the corpus against an English-trained embedding model.
-
-A project whose documentation reports only what works has not really been measured. A project that never revisits what it measured has not really been understood.
+A project whose documentation reports only what works has not really been measured.
