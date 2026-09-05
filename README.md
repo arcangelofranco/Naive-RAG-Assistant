@@ -1439,7 +1439,7 @@ stateDiagram-v2
 
     Generation --> Citations: model answer
 
-    Citations --> Refusal: cites no passage
+    Citations --> Refusal: cites no passage<br/>
     Citations --> Refusal: cites a source<br/>absent from the prompt
     Citations --> Answer: cites at least one,<br/>and they all exist
 
