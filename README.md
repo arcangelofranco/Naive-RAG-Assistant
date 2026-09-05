@@ -1863,5 +1863,3 @@ The design bias, everywhere, is towards **verifiability over helpfulness**. The 
 The architecture is deliberately conventional. Protocols sit next to their consumers, adapters are interchangeable, and the composition root is the only place that knows which concrete implementations are in use. That allows switching from Gemini to Groq through an environment variable, with no code change, and it keeps the grounding rules in the domain layer, where they can be tested without network calls or database access.
 
 The measurements reported in this document follow the same principle. The retrieval failure on the single responsibility question is not an incidental defect to hide, it is empirical evidence, and it is what keeps hybrid search on the table as a candidate.
-
-A project whose documentation reports only what works has not really been measured.
