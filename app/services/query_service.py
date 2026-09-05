@@ -37,7 +37,7 @@ class QueryService:
         self,
         embedding_provider: EmbeddingProvider,
         chunk_searcher: ChunkSearcher,
-        llm_provider: LLMProvider,
+        llm_provider: LLMProvider | None,
         top_k: int,
         similarity_threshold: float
     ) -> None:
@@ -50,6 +50,10 @@ class QueryService:
             chunk_searcher: Runs the nearest-neighbor lookup.
             llm_provider: Generates the answer. In practice this is the
                 cache wrapping the retry layer wrapping a concrete adapter.
+                It may be ``None``, which builds a retrieval-only service:
+                ``retrive`` works, ``ask`` does not. Building the stack
+                needs an API key, so the debug endpoint stays reachable
+                without credentials by leaving this out.
             top_k: Default number of chunks to retrieve per question.
             similarity_threshold: Minimum similarity for a chunk to be
                 allowed into the prompt.
@@ -90,6 +94,9 @@ class QueryService:
         model and never gets the chance to be answered from memory. Citation
         validation runs after generation and discards the whole answer when
         it cites nothing, or cites a passage that was never in the prompt.
+
+        It needs an ``llm_provider``, so a service built for retrieval alone
+        cannot serve this method.
 
         Args:
             question: The user question.

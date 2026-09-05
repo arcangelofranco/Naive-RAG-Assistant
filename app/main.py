@@ -32,7 +32,7 @@ async def lifespan(app: FastAPI):
     app.state.db_pool.close()
 
 
-app = FastAPI(title="RAG Assistant", lifespan=lifespan)
+app = FastAPI(title="Naive RAG Assistant", lifespan=lifespan)
 app.include_router(health_router)
 app.include_router(debug_router)
 app.include_router(ask_router)

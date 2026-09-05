@@ -89,3 +89,31 @@ def get_query_service(
         embedding_provider=embedding_provider,
         llm_provider=llm_provider
     )
+
+def get_retrieval_service(
+    embedding_provider: Annotated[EmbeddingProvider, Depends(get_embedding_provider)],
+    pool: Annotated[ConnectionPool, Depends(get_database_pool)],
+    settings: Annotated[Settings, Depends(get_settings)]
+) -> QueryService:
+    """Assemble a service that retrieves but does not generate.
+
+    It deliberately does not depend on the LLM stack. Building that stack
+    requires an API key, so asking for it here would make retrieval
+    unreachable exactly in the situation where inspecting it is most
+    useful: a deployment with the corpus indexed and no credentials yet.
+
+    Args:
+        embedding_provider: The process-wide embedding provider.
+        pool: The process-wide connection pool.
+        settings: Application settings.
+
+    Returns:
+        A query service whose ``retrive`` method is usable, and whose
+        ``ask`` method is not.
+    """
+    return build_query_service(
+        settings=settings,
+        pool=pool,
+        embedding_provider=embedding_provider,
+        llm_provider=None
+    )

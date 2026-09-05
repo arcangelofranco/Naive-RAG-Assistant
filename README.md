@@ -1,6 +1,6 @@
 <div align="center">
 
-# RAG Assistant
+# Naive RAG Assistant
 
 A retrieval-augmented generation service built on a curated software engineering knowledge base. It is a FastAPI application that uses PostgreSQL with pgvector for vector storage. Answers are grounded in retrieved context and validated before they reach the user, and every claim carries an inline citation pointing at a specific passage. When validation fails, the system refuses to answer rather than guessing.
 
@@ -62,6 +62,7 @@ The LLM backend is interchangeable. Google Gemini works natively, and so does an
 ```text
 root/
 ├── README.md
+├── LICENSE
 ├── pyproject.toml                      # dependencies, packaging, pytest markers
 ├── Dockerfile                          # api image: dependencies + model weights cached before the code
 ├── docker-compose.yaml                 # db (pgvector/pg16) + api services
@@ -107,7 +108,7 @@ root/
     │       ├── base.py                 # LLMProvider protocol
     │       ├── llm_gemini.py           # google-genai implementation
     │       ├── llm_openai.py           # OpenAI-compatible implementation (Groq, Ollama, ...)
-    │       ├── llm_retry.py            # retry decorator with per-error-type backoff
+    │       ├── llm_retry.py            # retry decorator: provider Retry-After, else linear backoff
     │       ├── llm_cache.py            # conditional in-memory response cache
     │       └── llm_exceptions.py       # provider-independent error taxonomy
     │
@@ -142,8 +143,8 @@ The **embedding model** runs locally inside the container and **needs no credent
 #### 1. Clone the repository
 
 ```bash
-git clone https://github.com/<your-username>/rag-assistant.git
-cd rag-assistant
+git clone https://github.com/<your-username>/naive-rag-assistant.git
+cd naive-rag-assistant
 ```
 
 #### 2. Configure the environment
@@ -190,7 +191,7 @@ On first startup, PostgreSQL automatically runs [`database/schema.sql`](database
 You can confirm that the tables were created correctly with:
 
 ```bash
-docker compose exec db psql -U postgres -d rag_assistant -c "\dt"
+docker compose exec db psql -U postgres -d naive_rag_assistant -c "\dt"
 ```
 
 ### 2. Ingest the knowledge base
@@ -215,7 +216,7 @@ When it finishes, the output looks like this:
 35 documents, 179 chunks ingested.
 ```
 
-The operation is **idempotent**: documents are updated by their `id`, while their chunks are deleted and rewritten. You can therefore rerun ingestion after editing the corpus in order to refresh the index **without creating duplicate rows**.
+The operation is **idempotent**: documents are updated by their `id`, while their chunks are deleted and rewritten. You can therefore re-run ingestion after editing the corpus in order to refresh the index **without creating duplicate rows**.
 
 
 ### 3. Start the API
@@ -246,7 +247,7 @@ curl -X POST http://localhost:8000/ask \
 To avoid the problem, round-trip the response through `UTF-8` explicitly:
 
 ```powershell
-$body = @{ question = "What is the Facade pattern?" } | ConvertTo-Json
+$body = @{ question = "What is the difference between an object adapter and a class adapter?" } | ConvertTo-Json
 
 $resp = Invoke-WebRequest -UseBasicParsing `
     -Uri http://localhost:8000/ask `
@@ -351,6 +352,7 @@ Each entry in `sources` contains the following fields:
 | Provider rate limit, after 3 attempts                      | `429` | Response with `Retry-After` if the provider supplied one. |
 | Provider unreachable, or the request timed out             | `503` | Neutral message.                                 |
 | Database unreachable                                       | `503` | `"Database not accessible."`                     |
+| Missing or invalid key, unknown model, or request rejected as malformed | `500` | FastAPI's generic error. Not retried, and it names nothing about the provider. |
 
 > [!NOTE]
 > **On security:** no response ever names the LLM provider. The `429` and `503` handlers deliberately return an empty `detail` field, which prevents the configured backend from leaking to the client. This non-disclosure behavior is **not currently covered by automated tests**, as described in [Verification and Evaluation](#verification-and-evaluation).
@@ -371,7 +373,7 @@ The `get_settings()` function is decorated with `lru_cache`, so configuration is
 | `LLM_BASE_URL`         |                           *(empty)*                           | The LLM endpoint URL. It is ignored with `google` and **required** with `openai`, for example `https://api.groq.com/openai/v1`.                                                  |
 | `EMBEDDING_MODEL`      |                           *(empty)*                           | The `sentence-transformers` model name used for embeddings. It must produce **384-dimensional** vectors, so that it stays compatible with the database schema.                   |
 | `EMBEDDINGS_TABLE`     |                       `chunk_embeddings`                      | The PostgreSQL table where vectors are stored. The value is injected as a quoted SQL identifier, which makes it possible to keep an alternative embedding space in a separate table. |
-| `DATABASE_URL`         | `postgresql://postgres:postgres@localhost:5432/rag_assistant` | The PostgreSQL connection string. Under Docker Compose the host is overridden with `db`, so that the API can reach the database container.                                       |
+| `DATABASE_URL`         | `postgresql://postgres:postgres@localhost:5432/naive_rag_assistant` | The PostgreSQL connection string. Under Docker Compose the host is overridden with `db`, so that the API can reach the database container.                                       |
 | `SIMILARITY_THRESHOLD` |                             `0.5`                             | The minimum cosine similarity for a chunk to enter the prompt. See [The Similarity Threshold](#the-similarity-threshold), which explains why this value is not calibrated.       |
 | `TOP_K`                |                              `5`                              | The maximum number of chunks retrieved per query. It can be overridden per request through the `top_k` field of `/ask`.                                                          |
 
@@ -444,7 +446,7 @@ The architecture implemented in this project is a simpler variant, based on **se
 
 This is the fundamental design requirement of this repository, and it is stated openly in the system prompt:
 
-> *"Your primary goal is NOT to be helpful: it is to be verifiable. An answer unsupported by the context is a worse failure than a refusal."*
+> *"Your primary objective is NOT to be helpful: it is to be verifiable. An answer unsupported by the context is a more serious failure than a refusal."*
 
 A system that **always answers** is not necessarily a useful system. A reliable system is one you can trust **when it does answer**, because you know that it prefers to **refuse rather than fabricate** whenever the retrieved sources are insufficient.
 
@@ -548,21 +550,22 @@ flowchart TB
 
     subgraph A["ADVANCED RAG: optimizations around retrieval"]
         direction LR
-        A0["PRE-RETRIEVAL<br/>query rewriting,<br/>expansion, routing"] --> A1["retrieval"]
+        A0["PRE-RETRIEVAL<br/>index optimization,<br/>query rewriting and expansion"] --> A1["retrieve"]
         A1 --> A2["POST-RETRIEVAL<br/>reranking, compression,<br/>context reordering"]
         A2 --> A3["generate"]
     end
 
     subgraph M["MODULAR RAG"]
         direction LR
-        M1["interchangeable modules:<br/>memory - search - fusion<br/>routing - iteration"]
+        M1["modules:<br/>search - memory - fusion<br/>routing - predict - task adapter"] --> M2["patterns:<br/>iterative, recursive,<br/>adaptive retrieval"]
     end
 
-    N --> A --> M
+    N -->|"evolves into"| A -->|"evolves into"| M
 
     style N stroke:#83edff
     style A stroke:#ff4e7b
     style M stroke:#63f4a2
+
 ```
 
 </div>
@@ -1157,7 +1160,7 @@ Two properties make this fix correct, rather than merely working:
 
 * **`providers/` stays a leaf.** The predicate is **injected**, not imported: the cache receives a `Callable[[str, str], bool]` and needs to know nothing about citations or passages.
 
-The effect is measurable: across four questions, a valid answer goes from a first call between **10398 ms and 26187 ms** to a second call between **17 ms and 50 ms**, roughly two to three orders of magnitude, because the second call never leaves the process.
+The effect is measurable: across four questions, a valid answer goes from a first call between **10398 ms and 26187 ms** to a second call between **33 ms and 50 ms**, roughly two to three orders of magnitude, because the second call never leaves the process.
 
 The complementary measurement, a discarded answer staying slow on every call because it is never stored, is not reproduced here. Forcing it on demand means making the model return an answer that fails citation validation, which at `temperature=0.1` does not happen reliably. It is the behavior the branch above exists to produce, and it remains untested.
 
@@ -1197,7 +1200,7 @@ sequenceDiagram
     P-->>A: 429 with Retry-After header
     A->>A: translates into LLMRateLimitError
     A-->>R: LLMRateLimitError
-    R->>R: waits, then linear backoff
+    R->>R: waits the declared interval,<br/>otherwise linear backoff
     R->>A: attempt 2
     A->>P: HTTP request
     P-->>A: 200 OK
@@ -1414,7 +1417,9 @@ The API is built with FastAPI [26], which resolves dependencies per request thro
 
 **The embedding model is loaded in the `lifespan`, not on every request**, because loading takes several seconds and repeating it per question would make the API unusable.
 
-The LLM stack, by contrast, is **lazy**: it is built on the first request that needs it and then kept in `app.state`. Building it requires an API key, so initializing it at startup would prevent the application from booting when no key is available. Ingestion and `/debug/retrieve` need to stay usable without LLM credentials.
+The LLM stack, by contrast, is **lazy**: it is built on the first request that needs it and then kept in `app.state`. Building it requires an API key, so initializing it at startup would prevent the application from booting when no key is available.
+
+`/ask` is the only path that asks for that stack. `/debug/retrieve` is wired to a **retrieval-only** service, built without an LLM provider at all, so retrieval and ingestion both stay usable on a deployment that has the corpus indexed and no credentials configured.
 
 Memoizing the stack in `app.state` is also what makes the cache effective. If the stack were rebuilt on every request, the cache would be initialized empty every time.
 
@@ -1540,7 +1545,7 @@ flowchart TB
         SCHEMA["./database/schema.sql"]
     end
 
-    subgraph net["Docker network rag_assistant_default"]
+    subgraph net["Docker network naive_rag_assistant_default"]
         API["api service<br/>uvicorn port 8000"]
         DB["db service<br/>postgres port 5432"]
 
@@ -1654,7 +1659,6 @@ Every number reported in this document comes from direct observation of the runn
 | Top-1 similarity, in domain and out of domain | `GET /debug/retrieve`, with no LLM call at all                           |
 | Corpus volumes and token distribution         | SQL queries against the `documents`, `chunks` and `chunk_embeddings` tables |
 | Latency with and without the cache            | Repeated calls to `POST /ask` on the same prompt                         |
-| Cache behavior on discarded answers           | Three consecutive calls to the same question rejected by validation      |
 | Image rebuild times                           | `docker compose build` with and without the current layer order          |
 
 The `/debug/retrieve` endpoint is what makes the first row possible. It exposes retrieval as an independently observable stage, so search quality can be assessed without the behavior of the generative model overlapping the measurement.
@@ -1854,7 +1858,7 @@ Every measurement is reproducible with the commands present in this document. Si
 
 This repository is an implementation and teaching exercise, not a production service. The goal is to build a complete RAG pipeline in which every stage is explicit and inspectable, from parsing to chunking, from embedding to vector search, through prompt construction, generation and verification. The interesting decisions are therefore never delegated to a framework.
 
-The design bias, everywhere, is towards **verifiability over helpfulness**. The system prompt states that principle directly, treating an answer unsupported by context as a worse failure than a refusal. The principle is not left to the model's discretion, it is enforced structurally through three independent checkpoints. One of them runs after generation and can reject the model output entirely. The `/debug/retrieve` endpoint follows the same philosophy, since it makes retrieval quality observable independently of how the LLM processes the retrieved information.
+The design bias, everywhere, is towards **verifiability over helpfulness**. The system prompt states that principle directly, treating an answer unsupported by context as a more serious failure than a refusal. The principle is not left to the model's discretion, it is enforced structurally through three independent checkpoints. One of them runs after generation and can reject the model output entirely. The `/debug/retrieve` endpoint follows the same philosophy, since it makes retrieval quality observable independently of how the LLM processes the retrieved information.
 
 The architecture is deliberately conventional. Protocols sit next to their consumers, adapters are interchangeable, and the composition root is the only place that knows which concrete implementations are in use. That allows switching from Gemini to Groq through an environment variable, with no code change, and it keeps the grounding rules in the domain layer, where they can be tested without network calls or database access.
 

@@ -31,6 +31,11 @@ def build_prompt(question: str, chunks: list[ContextChunk]) -> str:
     model is instructed to cite, and what ``validate_citations`` later checks
     the answer against.
 
+    The block delimiters are the ones the system prompt declares as the input
+    format, so the message the model receives matches the structure its
+    instructions describe. Passage lines are left unindented, since that is
+    what lets ``count_passages`` recover their number from the text.
+
     Args:
         question: The user question, passed through unchanged.
         chunks: Retrieved passages to place in the context, already filtered
@@ -38,15 +43,15 @@ def build_prompt(question: str, chunks: list[ContextChunk]) -> str:
             context can affect how well the model uses a passage.
 
     Returns:
-        The full prompt text, with a ``CONTEXT`` block followed by a
-        ``QUESTION`` block.
+        The full prompt text, with a ``[context]`` block followed by a
+        ``[question]`` block.
     """
     passages = "\n\n".join(
         f"[{i}] {context_header(c.title, c.section)}\n{c.content}"
         for i, c in enumerate(chunks, start=1)
     )
 
-    return f"CONTEXT:\n{passages}\n\nQUESTION:\n{question}"
+    return f"[context]\n{passages}\n[/context]\n[question]\n{question}\n[/question]"
 
 def count_passages(prompt: str) -> int:
     """Count the numbered passages a prompt contains.

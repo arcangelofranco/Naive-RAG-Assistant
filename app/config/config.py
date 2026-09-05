@@ -41,7 +41,7 @@ class Settings(BaseSettings):
 
     embedding_model: str = ""
     embeddings_table: str = "chunk_embeddings"
-    database_url: str = "postgresql://postgres:postgres@localhost:5432/rag_assistant"
+    database_url: str = "postgresql://postgres:postgres@localhost:5432/naive_rag_assistant"
     similarity_threshold: float = 0.5
     top_k: int = 5
 

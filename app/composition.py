@@ -200,7 +200,7 @@ def build_ingestor(settings: Settings, pool: ConnectionPool) -> KnowledgeIngesto
         repository=build_knowledge_repository(settings, pool)
     )
 
-def build_query_service(settings: Settings, pool: ConnectionPool, embedding_provider: EmbeddingProvider, llm_provider: LLMProvider) -> QueryService:
+def build_query_service(settings: Settings, pool: ConnectionPool, embedding_provider: EmbeddingProvider, llm_provider: LLMProvider | None) -> QueryService:
     """Build the query pipeline from already constructed collaborators.
 
     The embedding provider and the LLM stack are passed in rather than built
@@ -213,10 +213,12 @@ def build_query_service(settings: Settings, pool: ConnectionPool, embedding_prov
             similarity threshold.
         pool: An open connection pool with pgvector registered.
         embedding_provider: The process-wide embedding provider.
-        llm_provider: The decorated LLM stack.
+        llm_provider: The decorated LLM stack, or ``None`` for a service
+            that only retrieves. Retrieval needs no credentials, so leaving
+            it out is what keeps that path available without an API key.
 
     Returns:
-        A query service wired to its three ports.
+        A query service wired to its ports.
     """
     return QueryService(
         embedding_provider=embedding_provider,
