@@ -1,0 +1,28 @@
+# secrets
+.env
+.env.*
+!.env.example
+
+# local knowledge corpus
+knowledge/*/*.md
+
+# python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
+
+# tooling caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+
+# editors / os
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
